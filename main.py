@@ -17,7 +17,11 @@ def get_articles_from_category(category_url):
     if not html:
         return []
     soup = BeautifulSoup(html, 'html.parser')
-    links = soup.select('div#mw-pages li a')[:2]
+    
+  
+    main_div = soup.find("div", class_="mw-category mw-category-columns")
+    links = main_div.find_all("a")[:2] if main_div else []
+    
     articles = []
     for link in links:
         article_url = f"https://pl.wikipedia.org{link['href']}"
@@ -30,14 +34,23 @@ def extract_article_data(article_url):
     if not html:
         return None
     soup = BeautifulSoup(html, 'html.parser')
+    
+ 
     links = [a for a in soup.select('a[href^="/wiki/"]') if ':' not in a['href'] and '/wiki/Kategoria:' not in a['href']][:5]
     article_links = [(link.get_text(), f"https://pl.wikipedia.org{link['href']}") for link in links]
+    
+ 
     images = [img for img in soup.select('img') if img.get('src') and ('//upload.wikimedia.org' in img['src'] or 'upload.wikimedia.org' in img['src'])][:3]
     image_urls = [f"https:{img['src']}" if img['src'].startswith("//") else f"https://pl.wikipedia.org{img['src']}" for img in images]
+    
     external_links = soup.select('ol.references li cite a.external')[:3]
     external_urls = [link['href'] for link in external_links]
-    categories = soup.select('div#mw-normal-catlinks ul li a')[:3]
+    
+
+    category_div = soup.find('div', id="mw-normal-catlinks")
+    categories = category_div.find_all("a")[1:4] if category_div else []
     category_names = [cat.get_text() for cat in categories]
+
     return {
         'article_links': article_links,
         'image_urls': image_urls,
