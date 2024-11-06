@@ -17,11 +17,7 @@ def get_articles_from_category(category_url):
     if not html:
         return []
     soup = BeautifulSoup(html, 'html.parser')
-    
-  
-    main_div = soup.find("div", class_="mw-category mw-category-columns")
-    links = main_div.find_all("a")[:2] if main_div else []
-    
+    links = soup.select('div#mw-pages li a')[:2]
     articles = []
     for link in links:
         article_url = f"https://pl.wikipedia.org{link['href']}"
@@ -34,22 +30,19 @@ def extract_article_data(article_url):
     if not html:
         return None
     soup = BeautifulSoup(html, 'html.parser')
-    
- 
-    links = [a for a in soup.select('a[href^="/wiki/"]') if ':' not in a['href'] and '/wiki/Kategoria:' not in a['href']][:5]
-    article_links = [(link.get_text(), f"https://pl.wikipedia.org{link['href']}") for link in links]
-    
- 
-    images = [img for img in soup.select('img') if img.get('src') and ('//upload.wikimedia.org' in img['src'] or 'upload.wikimedia.org' in img['src'])][:3]
-    image_urls = [f"https:{img['src']}" if img['src'].startswith("//") else f"https://pl.wikipedia.org{img['src']}" for img in images]
-    
-    external_links = soup.select('ol.references li cite a.external')[:3]
-    external_urls = [link['href'] for link in external_links]
-    
 
+    links = [a for a in soup.select('a[href^="/wiki/"]') if ':' not in a['href'] and '/wiki/Kategoria:' not in a['href']][:5]
+    article_links = " | ".join([link.get_text() for link in links])
+
+    images = [img for img in soup.select('img') if img.get('src') and ('//upload.wikimedia.org' in img['src'] or 'upload.wikimedia.org' in img['src'])][:3]
+    image_urls = " | ".join([f"https:{img['src']}" if img['src'].startswith("//") else f"https://pl.wikipedia.org{img['src']}" for img in images])
+
+    external_links = soup.select('ol.references li cite a.external')[:3]
+    external_urls = " | ".join([link['href'] for link in external_links])
+    
     category_div = soup.find('div', id="mw-normal-catlinks")
     categories = category_div.find_all("a")[1:4] if category_div else []
-    category_names = [cat.get_text() for cat in categories]
+    category_names = " | ".join([cat.get_text() for cat in categories])
 
     return {
         'article_links': article_links,
@@ -70,18 +63,10 @@ def main():
         print(f"\nArtykuł: {article_name}\nURL: {article_url}")
         data = extract_article_data(article_url)
         if data:
-            print("\nOdnośniki do innych artykułów Wikipedii:")
-            for text, url in data['article_links']:
-                print(f"{text} -> {url}")
-            print("\nAdresy URL obrazków:")
-            for img in data['image_urls']:
-                print(img)
-            print("\nAdresy URL źródeł:")
-            for src in data['external_urls']:
-                print(src)
-            print("\nKategorie artykułu:")
-            for cat in data['category_names']:
-                print(cat)
+            print(data['article_links'])
+            print(data['image_urls'])
+            print(data['external_urls'])
+            print(data['category_names'])
         else:
             print("Błąd w pobieraniu danych z artykułu.")
 
