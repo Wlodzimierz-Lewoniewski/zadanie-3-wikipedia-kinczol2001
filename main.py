@@ -1,74 +1,98 @@
 import requests
 from bs4 import BeautifulSoup
+import html
 
-def get_html(url):
-    response = requests.get(url)
-    if response.status_code == 200:
-        return response.text
-    return None
+# Pobiera pierwsze 5 linków wewnętrznych z artykułu.
+def extract_internal_links(content_div):
+    internal_links = [
+        link['title'] for link in content_div.find_all('a', href=True)
+        if link['href'].startswith('/wiki/') and ':' not in link['href'][6:]
+    ]
+    return internal_links[:5]
 
-def generate_category_url(category_name):
-    formatted_name = category_name.replace(" ", "_")
-    category_url = f"https://pl.wikipedia.org/wiki/Kategoria:{formatted_name}"
-    return category_url
+# Pobiera źródła pierwszych 3 obrazków w artykule.
+def extract_image_urls(content_div):
+    images = content_div.find_all("img")
+    return [img["src"] for img in images if '/wiki/' not in img['src']][:3]
 
-def get_articles_from_category(category_url):
-    html = get_html(category_url)
-    if not html:
+# Pobiera pierwsze 3 zewnętrzne odnośniki z artykułu.
+def extract_external_links(soup_obj):
+    ref_section = soup_obj.find("div", class_="mw-references-wrap mw-references-columns")
+    if not ref_section:
+        ref_section = soup_obj.find("div", class_="do-not-make-smaller refsection")
+
+    if ref_section:
+        external_links = [
+            link['href'] for item in ref_section.find_all("li")
+            for span in item.find_all("span", class_="reference-text")
+            for link in span.find_all("a", href=True) if "http" in link['href']
+        ]
+        return " | ".join(html.escape(url) for url in external_links[:3])
+    return ""
+
+# Pobiera pierwsze 3 kategorie przypisane do artykułu.
+def extract_categories(soup_obj):
+    category_div = soup_obj.find("div", class_="mw-normal-catlinks")
+    if category_div:
+        category_list = category_div.find('ul')
+        return " | ".join(cat.text.strip() for cat in category_list.find_all("a")[:3])
+    return ""
+
+# Zwraca informacje z artykułu Wikipedii.
+def retrieve_article_info(article_name):
+    page_url = f'https://pl.wikipedia.org{article_name}'
+    response = requests.get(page_url)
+
+    if response.status_code != 200:
+        print("Błąd podczas pobierania strony:", response.status_code)
         return []
-    soup = BeautifulSoup(html, 'html.parser')
-    links = soup.select('div#mw-pages li a')[:2]
-    articles = []
-    for link in links:
-        article_url = f"https://pl.wikipedia.org{link['href']}"
-        article_name = link.get_text()
-        articles.append((article_name, article_url))
-    return articles
 
-def extract_article_data(article_url):
-    html = get_html(article_url)
-    if not html:
-        return None
-    soup = BeautifulSoup(html, 'html.parser')
+    parsed_page = BeautifulSoup(response.text, 'html.parser')
+    content_div = parsed_page.find("div", class_="mw-body-content")
 
-    links = [a for a in soup.select('a[href^="/wiki/"]') if ':' not in a['href'] and '/wiki/Kategoria:' not in a['href']][:5]
-    article_links = " | ".join([link.get_text() for link in links])
+    # Zbieranie danych z artykułu
+    internal_links = extract_internal_links(content_div)
+    image_urls = extract_image_urls(content_div)
+    external_links = extract_external_links(parsed_page)
+    categories = extract_categories(parsed_page)
 
-    images = [img for img in soup.select('img') if img.get('src') and ('//upload.wikimedia.org' in img['src'] or 'upload.wikimedia.org' in img['src'])][:3]
-    image_urls = " | ".join([f"https:{img['src']}" if img['src'].startswith("//") else f"https://pl.wikipedia.org{img['src']}" for img in images])
+    # Zwrócenie wyników w formie listy
+    return [
+        " | ".join(internal_links),
+        " | ".join(image_urls),
+        external_links,
+        categories
+    ]
 
-    external_links = soup.select('ol.references li cite a.external')[:3]
-    external_urls = " | ".join([link['href'] for link in external_links])
-    
-    category_div = soup.find('div', id="mw-normal-catlinks")
-    categories = category_div.find_all("a")[1:4] if category_div else []
-    category_names = " | ".join([cat.get_text() for cat in categories])
+# Pobiera pierwsze dwa linki artykułów z wybranej kategorii.
+def retrieve_category_articles(category_name):
+    url = f'https://pl.wikipedia.org/wiki/Kategoria:{category_name}'
+    response = requests.get(url)
 
-    return {
-        'article_links': article_links,
-        'image_urls': image_urls,
-        'external_urls': external_urls,
-        'category_names': category_names
-    }
+    if response.status_code != 200:
+        print("Błąd podczas pobierania strony:", response.status_code)
+        return []
 
+    parsed_page = BeautifulSoup(response.text, 'html.parser')
+    category_content = parsed_page.find("div", class_="mw-category mw-category-columns")
+    category_links = category_content.find_all("a")
+
+    # Zwraca pierwsze dwa linki artykułów z kategorii
+    return [link["href"] for link in category_links[:2]]
+
+# Główna funkcja programu obsługująca interakcję z użytkownikiem.
 def main():
-    category_name = input("Podaj nazwę kategorii w polskojęzycznej Wikipedii: ")
-    category_url = generate_category_url(category_name)
-    print(f"Generowany URL kategorii: {category_url}")
-    articles = get_articles_from_category(category_url)
-    if not articles:
-        print("Nie znaleziono artykułów w tej kategorii.")
-        return
-    for article_name, article_url in articles:
-        print(f"\nArtykuł: {article_name}\nURL: {article_url}")
-        data = extract_article_data(article_url)
-        if data:
-            print(data['article_links'])
-            print(data['image_urls'])
-            print(data['external_urls'])
-            print(data['category_names'])
-        else:
-            print("Błąd w pobieraniu danych z artykułu.")
+    category_name = input("Podaj nazwę kategorii: ").replace(" ", "_")
+
+    # Pobieramy artykuły z podanej kategorii
+    articles = retrieve_category_articles(category_name)
+
+    # Dla każdego artykułu pobieramy i wyświetlamy dane
+    for article in articles:
+        article_info = retrieve_article_info(article)
+        for info in article_info:
+            print(info)
+
 
 if __name__ == "__main__":
     main()
